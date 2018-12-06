@@ -3,10 +3,9 @@
 const JiraApi = require('jira-client');
 const program = require('commander');
 const chalk = require('chalk');
-const constants = require('./constants');
 
-const username = constants.JIRA_USERNAME;
-const password = constants.JIRA_PASSWORD;
+const username = process.env.JIRA_USERNAME;
+const password = process.env.JIRA_PASSWORD;
 
 const jira = new JiraApi({
   protocol: 'https',
