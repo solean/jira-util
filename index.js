@@ -16,26 +16,42 @@ const jira = new JiraApi({
 });
 
 
-program
-  .arguments('<version>')
-  .action(parseVersion)
-  .parse(process.argv);
+program.command('close <version>').action(closeIssues);
+program.command('notes <version>').action(generateReleaseNotes);
+program.command('search <query>').action(search);
+
+program.parse(process.argv);
 
 if (!process.argv.slice(2).length) {
-  program.outputHelp(() => '\nUsage: closeJiras <version>\n\n');
+  const helpStr = '\nUsage:\n\tjira close <version>\n\tjira notes <version>\n\tjira search \'<query>\'\n\n';
+  program.outputHelp(() => helpStr);
 }
 
 
-function parseVersion(version) {
-  if (version) {
-    closeIssues(version);
+function handleError(e) {
+  let msg = '\nSorry, something went wrong while retrieving Jira issues:\n\n';
+  if (e && e.error && e.error.errorMessages && e.error.errorMessages.length) {
+    msg += e.error.errorMessages[0] + '\n';
+  }
+  console.log(chalk.red(msg));
+}
+
+async function search(query) {
+  if (!query) return [];
+  try {
+    const results = await jira.searchJira(query);
+    const issues = results && results.issues ? results.issues : [];
+    issues.forEach(i => {
+      console.log(i.key + ' - ' + i.fields.summary);
+    });
+  } catch(e) {
+    handleError(e);
   }
 }
 
 async function getIssuesByFixVersion(version) {
   if (!version) return [];
-  const results = await jira.searchJira(`fixVersion=${version}`);
-  return results && results.issues ? results.issues : [];
+  return search(`fixVersion=${version}`);
 }
 
 async function getTransitions(issueId) {
@@ -82,7 +98,13 @@ async function getSprintIssues(sprintName) {
 }
 
 async function generateReleaseNotes(version) {
-  const issues = await getIssuesByFixVersion(version);
+  let issues;
+  try {
+    issues = await getIssuesByFixVersion(version);
+  } catch(e) {
+    console.log(chalk.red(e));
+    return null;
+  }
 
   if (!issues || !issues.length) {
     return null;
