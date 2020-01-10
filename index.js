@@ -3,6 +3,7 @@
 const JiraApi = require('jira-client');
 const program = require('commander');
 const chalk = require('chalk');
+const moment = require('moment');
 
 const username = process.env.JIRA_USERNAME;
 const password = process.env.JIRA_PASSWORD;
@@ -16,6 +17,8 @@ const jira = new JiraApi({
 });
 
 
+program.command('issue <issue number>').action(printIssue);
+program.command('comments <issue number>').action(printComments);
 program.command('close <version>').action(closeIssues);
 program.command('notes <version>').action(generateReleaseNotes);
 program.command('search <query>').action(search);
@@ -31,7 +34,7 @@ if (!process.argv.slice(2).length) {
 function handleError(e) {
   let msg = '\nSorry, something went wrong while retrieving Jira issues:\n\n';
   if (e && e.error && e.error.errorMessages && e.error.errorMessages.length) {
-    msg += e.error.errorMessages[0] + '\n';
+    msg += `\t${e.error.errorMessages[0]}\n`;
   }
   console.log(chalk.red(msg));
 }
@@ -44,9 +47,66 @@ async function search(query) {
     issues.forEach(i => {
       console.log(i.key + ' - ' + i.fields.summary);
     });
+    return issues;
   } catch(e) {
     handleError(e);
   }
+}
+
+async function printIssue(issueNumber) {
+  let issue;
+  try {
+    issue = await jira.findIssue(issueNumber);
+  } catch(e) {
+    handleError(e);
+    return;
+  }
+  console.log('\n' + chalk.underline.green(issue.key + ' - ' + issue.fields.summary + '\n'));
+  const type = issue.fields.issuetype ? issue.fields.issuetype.name : '';
+  console.log(chalk.bold('Type: ') + type);
+  const assignee = issue.fields.assignee ? (issue.fields.assignee.displayName + ' - ' + issue.fields.assignee.emailAddress) : '';
+  console.log(chalk.bold('Assignee: ') + assignee);
+  const status = issue.fields.status ? issue.fields.status.name : '';
+  console.log(chalk.bold('Status: ') + status);
+  console.log(chalk.bold('Created: ') + moment(issue.fields.created).format('MMMM Do YYYY, h:mm A'));
+  let fixVersionsStr = '';
+  const fixVersions = issue.fields.fixVersions;
+  if (fixVersions && fixVersions.length) {
+    const fixVersionNames = fixVersions.map(f => f.name);
+    fixVersionsStr = fixVersionNames.join(', ');
+  }
+  console.log(chalk.bold('Fix Version: ') + fixVersionsStr);
+  console.log(chalk.bold('Project Number: ') + (issue.fields.customfield_10022 || ''));
+  console.log(chalk.bold('Labels: ') + issue.fields.labels);
+  console.log(chalk.bold('\nDescription:\n') + chalk.yellow(issue.fields.description));
+  // issue.fields.issueLinks
+  const numComments = issue.fields.comment && issue.fields.comment.comments && issue.fields.comment.comments.length;
+  console.log('\n' + (numComments || 0) + (numComments === 1 ? ' Comment' : ' Comments') + '\n');
+}
+
+async function getComments(issueNumber) {
+  let issue;
+  try {
+    issue = await jira.findIssue(issueNumber);
+  } catch(e) {
+    handleError(e);
+    return;
+  }
+  console.log(chalk.underline.green(issue.key + ' - ' + issue.fields.summary + '\n\n'));
+
+  const comments = issue.fields.comment.comments;
+  return comments;
+}
+
+async function printComments(issueNumber) {
+  let comments = await getComments(issueNumber);
+  comments && comments.forEach(c => {
+    const formattedDate = moment(c.created).format('MMMM Do YYYY, h:mm A');
+    const formattedAuthor = c.author.displayName + ' (' + c.author.emailAddress + ')';
+    console.log(chalk.underline.yellow(formattedAuthor + ' - ' + formattedDate));
+    console.log(c.body);
+    console.log('\n');
+  });
 }
 
 async function getIssuesByFixVersion(version) {
