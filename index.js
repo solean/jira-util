@@ -4,13 +4,16 @@ const JiraApi = require('jira-client');
 const program = require('commander');
 const chalk = require('chalk');
 const moment = require('moment');
+require('dotenv').config();
 
+const host = process.env.JIRA_HOST;
 const username = process.env.JIRA_USERNAME;
 const password = process.env.JIRA_PASSWORD;
 
+
 const jira = new JiraApi({
   protocol: 'https',
-  host: 'jira.softrek.com',
+  host: host,
   username: username,
   password: password,
   apiVersion: '2'
