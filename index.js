@@ -25,11 +25,12 @@ program.command('comments <issue number>').action(printComments);
 program.command('close <version>').action(closeIssues);
 program.command('notes <version>').action(generateReleaseNotes);
 program.command('search <query>').action(search);
+program.command('setVersion <version> [sprintId]').action(setVersion);
 
 program.parse(process.argv);
 
 if (!process.argv.slice(2).length) {
-  const helpStr = '\nUsage:\n\tjira close <version>\n\tjira notes <version>\n\tjira search \'<query>\'\n\n';
+  const helpStr = '\nUsage:\n\tjira close <version>\n\tjira notes <version>\n\tjira search \'<query>\'\n\tjira setVersion <version> [sprintId]\n\n';
   program.outputHelp(() => helpStr);
 }
 
@@ -64,7 +65,7 @@ async function printIssue(issueNumber) {
     handleError(e);
     return;
   }
-  console.log('\n' + chalk.underline.green(issue.key + ' - ' + issue.fields.summary + '\n'));
+  console.log('\n' + chalk.bold.underline.green(issue.key + ' - ' + issue.fields.summary + '\n'));
   const type = issue.fields.issuetype ? issue.fields.issuetype.name : '';
   console.log(chalk.bold('Type: ') + type);
   const assignee = issue.fields.assignee ? (issue.fields.assignee.displayName + ' - ' + issue.fields.assignee.emailAddress) : '';
@@ -95,7 +96,7 @@ async function getComments(issueNumber) {
     handleError(e);
     return;
   }
-  console.log(chalk.underline.green(issue.key + ' - ' + issue.fields.summary + '\n\n'));
+  console.log('\n' + chalk.bold.underline.green(issue.key + ' - ' + issue.fields.summary + '\n\n'));
 
   const comments = issue.fields.comment.comments;
   return comments;
@@ -204,3 +205,76 @@ async function generateReleaseNotes(version) {
     other
   };
 }
+
+
+async function getActiveSprints(boardId) {
+  const sprints = await jira.getAllSprints(boardId, 0, 50, 'active');
+  return sprints;
+}
+
+function isIssueClosed(issue) {
+  return issue && issue.fields && issue.fields.status && issue.fields.status.name == 'Closed';
+}
+
+function doesIssueHaveFixVersion(issue) {
+  return issue && issue.fields && issue.fields.fixVersions && issue.fields.fixVersions.length > 0;
+}
+
+// TODO: handle passed in sprintId instead of finding active sprint (needed?)
+async function setVersion(version, sprintId) {
+  const CV_BOARD_ID = '14';
+  const CV_PROJECT_ID = '10025';
+
+  console.log(chalk.bold.underline(`\nSetting fix version to: ${version}\n`));
+
+  let sprints = await jira.getAllSprints(CV_BOARD_ID, 0, 50, 'active');
+  let activeSprint = sprints.values[0];
+  if (!activeSprint || !activeSprint.id) {
+    console.log(chalk.bold.red('Active sprint not found'));
+    return null;
+  }
+
+  let issues = await jira.getBoardIssuesForSprint(CV_BOARD_ID, activeSprint.id);
+
+  let versionObj = null;
+  let versions = await jira.getVersions(CV_PROJECT_ID);
+  versions = versions || [];
+  for (let i = 0; i < versions.length; i++) {
+    let v = versions[i];
+    if (v && v.name == version) {
+      versionObj = v;
+      break;
+    }
+  }
+
+  if (!versionObj) {
+    // TODO: jira.createVersion if it doesnt exist already
+    console.log(chalk.bold.red(`Version "${version}" not found`));
+    return null;
+  }
+
+  let fixVersions = [versionObj];
+  issues = issues.issues || [];
+
+  let issueCount = issues.length;
+  let updatedCount = 0;
+
+  for (let i = 0; i < issues.length; i++) {
+    let issue = issues[i];
+    if (!isIssueClosed(issue) && !doesIssueHaveFixVersion(issue)) {
+      await jira.updateIssue(issue.id, {
+        fields: {
+          fixVersions: fixVersions
+        }
+      });
+      console.log(chalk.green('\t' + issue.key));
+      updatedCount++;
+    } else {
+      console.log(chalk.yellow('\t' + issue.key + ' already has a version or is closed'));
+    }
+  }
+
+  console.log(chalk.bold.underline.green(`\nUpdated ${updatedCount} issues out of ${issueCount} total issues.\n`));
+}
+
+
